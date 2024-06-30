@@ -1,0 +1,513 @@
+---
+title: "Final Project"
+author: "Art and Co."
+date: "2023-05-05"
+output: html_document
+---
+
+Final Project Data 
+
+
+##Cleaning and Exploratory Analysis
+
+
+``` {r echo=FALSE}
+
+library(readr)
+library(QuantPsyc) 
+library(psych)
+library(corrplot)
+library(ggplot2)
+library(leaps)
+library(car)
+library(tidyverse)
+library(glmnet)
+library(MASS)
+
+```
+
+
+<u>*Importing and overview of data*</u>
+
+``` {r echo=TRUE}
+covidSurvey <- read_csv("C:/Users/yalov/OneDrive/Desktop/COVID19_Student.csv")
+
+
+#overview of data
+head(covidSurvey)
+summary(covidSurvey)
+
+
+
+```
+
+
+##CLEANING AND PRE PROCESSING
+
+<u>*cleaning and renaming columns - not removing yet*</u>
+
+**we need clarity on what time Utilized means!!**
+```{r echo=TRUE}
+
+covidSurvey <- as.data.frame(covidSurvey)
+colNames <- list("ID", "Region", "Age", "classTime", "classRating", "Medium", "studyTime",
+         "fitnessTime", "sleepTime", "socialMediaTime", "socialPlatform", "tvTime", "numMeals",
+         "weightChange", "healthIssue", "copingMech", "timeUtilized", "Connection", "Miss")
+
+names(covidSurvey) <- c(colNames)
+#covidSurvey <- covidSurvey[,-c(2)] #took out the region variable
+head(covidSurvey)
+
+```
+
+
+<u>*Casting the categorical to numeric - placing this in a separate data set for now.*</u>
+
+**We are unclear on how to handle copingMech and Miss categories.**
+**It may be a good place to practice grouping responses or we need to create an algorithm for bucketing the unstructured responses into buckets**
+
+``` {r echo=TRUE}
+
+covidNum <- covidSurvey
+
+covidNum$classRating <- unclass(as.factor(covidNum$classRating))
+covidNum$Region <- unclass(as.factor(covidNum$Region))
+covidNum$Medium <- unclass(as.factor(covidNum$Medium))
+covidNum$socialPlatform <- unclass(as.factor(covidNum$socialPlatform))
+covidNum$weightChange <- unclass(as.factor(covidNum$weightChange))
+covidNum$healthIssue <- unclass(as.factor(covidNum$healthIssue))
+covidNum$timeUtilized <- unclass(as.factor(covidNum$timeUtilized))
+covidNum$Connection <- unclass(as.factor(covidNum$Connection))
+
+covidNum$tvTime <- as.numeric(covidNum$tvTime) #changed the tvTime from char to double. still has NAs to remove
+
+head(covidNum)
+
+
+```
+
+##EXPLORATORY portion of cleaning
+
+
+
+
+
+First, looking at summary and distributions of each variable 
+
+we found some NAs in classRating,Medium, and TvTime so we modified the columns
+
+``` {r echo=TRUE}
+summary(covidNum)
+
+covidNum$classRating[is.na(covidNum$classRating)] <- 3 #replacing missing class rating with median value
+covidNum$Medium[is.na(covidNum$Medium)] <- 0 #replacing missing medium (social media) with 0 / no medium
+head(covidNum)
+
+covidNum$tvTime[is.na(covidNum$tvTime)] <- 0 #replacing the NAs with 0 due to NA being "no TV" in char
+
+
+hist(covidNum$Age) #right skew, makes sense for students
+hist(covidNum$Region) # binary distribution
+hist(covidNum$classTime) #right skew
+hist(covidNum$classRating) #three spikes . there must be a way to make this hist look better.
+hist(covidNum$studyTime) #right skew  also an outlier
+hist(covidNum$fitnessTime) #heavy right skew
+hist(covidNum$sleepTime) #pretty even!
+hist(covidNum$socialMediaTime) #right skew
+hist(covidNum$tvTime) #massive right skew with an outlier
+hist(covidNum$numMeals) #kind of normal
+hist(covidNum$timeUtilized) #even split
+```
+
+
+Adding some tables for the categoricals to understand better
+
+```{r echo=TRUE}
+#some tables for the categoricals to understand better
+table(covidSurvey$Medium)
+table(covidSurvey$socialPlatform)
+table(covidSurvey$weightChange)
+table(covidSurvey$healthIssue)
+table(covidSurvey$timeUtilized)
+table(covidSurvey$Connection)
+
+```
+
+
+**ART and Areli began here**
+
+*checking out the intervariable correlation using corrplot*
+```{r echo=TRUE}
+
+#classic correlation plot and bubble-corr plot - removing ID, copingMech, and MISS
+
+
+corrCovid <- covidNum[,-c(1,16,19)]
+
+
+head(covidNum)
+
+summary(corrCovid)
+
+corrCovid <- sapply(corrCovid,as.numeric)
+corrCovid<- as.data.frame(corrCovid)
+
+
+#sapply(corrCovid,class)
+#plot(corrCovid)
+
+corrplot(cor(corrCovid))
+
+#pairs.panels(covidNum)
+```
+
+We notice that vast majority of variable have little to no correlation.
+This means that there will be very few variables that could explain the
+dataset variance and will likely issue an inaccurate model. 
+
+
+#VISUALIZATION - all ARELI!
+
+```{r echo=TRUE}
+summary(corrCovid)
+
+ggplot(corrCovid, aes(Age,socialMediaTime)) + geom_point() 
+
+ggplot(corrCovid, aes(socialPlatform, Age)) + geom_point() 
+
+ggplot(corrCovid, aes(Age, fitnessTime)) + geom_point() 
+
+ggplot(corrCovid, aes(Age, studyTime)) + geom_point() 
+
+ggplot(corrCovid, aes(Age, sleepTime)) + geom_point() 
+
+ggplot(corrCovid, aes(Age, healthIssue)) + geom_point() 
+
+ggplot(corrCovid, aes(healthIssue, sleepTime)) + geom_point() 
+
+ggplot(corrCovid, aes(healthIssue, fitnessTime)) + geom_point() 
+
+ggplot(corrCovid, aes(socialMediaTime, Connection)) + geom_point() 
+
+ggplot(corrCovid, aes(classTime,socialMediaTime)) + geom_point() 
+
+ggplot(corrCovid, aes(socialPlatform, classTime)) + geom_point() 
+
+ggplot(corrCovid, aes(classTime, fitnessTime)) + geom_point() 
+
+ggplot(corrCovid, aes(classTime, studyTime)) + geom_point() 
+
+ggplot(corrCovid, aes(classTime, sleepTime)) + geom_point() 
+
+ggplot(corrCovid, aes(classTime, healthIssue)) + geom_point() 
+
+```
+
+``` {r echo=TRUE}
+df <- mutate_all(corrCovid, function(x) as.numeric(as.character(x))) #wasn't reading the factors as nums so had to convert
+df2 <- df[,-c(10)] #remove tv time because it was being weird - idk why !!! fixed it
+corrplot(cor(df), method= "circle") 
+corrplot(cor(df), method = "color", type = "upper", order = "hclust")
+
+newCovidData <- df
+```
+looks like study time and sleep time are inversely correlated (shocker)
+fitness time and study time are positively correlated with time Utilized
+fitness and connection positively correlated
+correlations are not super strong on their own. Gives us a chance to combine factors
+
+
+
+
+#FACTOR ANALYSIS
+
+
+
+#prcomp scree plot to show which variables are contributing most in variability
+``` {r echo=TRUE, warning = FALSE}
+
+p1 = prcomp(corrCovid, scale = T)
+p1
+summary(p1) 
+
+plot(p1)
+abline(1, 0, col="red")
+```
+
+Lets run a parallel analysis for component number pick
+```{r echo=TRUE}
+parallel_cvid = fa.parallel(corrCovid, n.iter=250)
+parallel_cvid
+
+```
+
+
+```{r echo=TRUE}
+#lets rotate the data
+p2 = principal(corrCovid, rotate = "varimax", nfactors = 6)
+print(p2$loadings, cutoff = 0.4, sort=T)
+
+```
+
+we can see from summary that, when scaled, the variables contribute
+fairly evenly to the overall variance of the dataset
+we notice that PC6-7 variables take up the largest variances.
+The unrotated summary computed that RC3 explains more variance than RC1, RC4 more
+than RC2, RC6 more than RC5. Not certain why that is.
+
+``` {r echo=TRUE}
+OLS.init <- lm(classTime ~ ., data = newCovidData)
+summary(OLS.init)
+vif(OLS.init) #no multicollinearity confirmed
+#0.1 R2 with 8 significant variables. 
+
+```
+
+
+*removing outliers outside of IQR*
+
+removing classtime outliers
+``` {r echo=TRUE}
+quartiles<- quantile(newCovidData[,c('classTime')], probs= c(.25, .75))
+IQR <- IQR(newCovidData[,c('classTime')])
+  
+Lower <- quartiles[1] - 1.5*IQR
+Upper <- quartiles[2] + 1.5*IQR
+  
+data_wo_outliers<- subset(newCovidData, 
+                          newCovidData[,c('classTime')] > Lower & newCovidData[,c('classTime')] < Upper)
+
+
+
+#removing studyTime outliers
+
+quartiles<- quantile(newCovidData[,c('studyTime')], probs= c(.25, .75))
+IQR <- IQR(newCovidData[,c('studyTime')])
+
+Lower <- quartiles[1] - 1.5*IQR
+Upper <- quartiles[2] + 1.5*IQR
+
+data_wo_outliers<- subset(data_wo_outliers, 
+                          data_wo_outliers[,c('studyTime')] > Lower & data_wo_outliers[,c('studyTime')] < Upper)
+
+
+#removing fitnessTime outliers
+
+quartiles<- quantile(newCovidData[,c('fitnessTime')], probs= c(.25, .75))
+IQR <- IQR(newCovidData[,c('fitnessTime')])
+
+Lower <- quartiles[1] - 1.5*IQR
+Upper <- quartiles[2] + 1.5*IQR
+
+data_wo_outliers<- subset(data_wo_outliers, 
+                          data_wo_outliers[,c('fitnessTime')] > Lower & data_wo_outliers[,c('fitnessTime')] < Upper)
+
+
+#removing sleepTime outliers
+
+quartiles<- quantile(newCovidData[,c('sleepTime')], probs= c(.25, .75))
+IQR <- IQR(newCovidData[,c('sleepTime')])
+
+Lower <- quartiles[1] - 1.5*IQR
+Upper <- quartiles[2] + 1.5*IQR
+
+data_wo_outliers<- subset(data_wo_outliers, 
+                          data_wo_outliers[,c('sleepTime')] > Lower & data_wo_outliers[,c('sleepTime')] < Upper)
+
+
+#removing socMedTIme outliers
+
+quartiles<- quantile(newCovidData[,c('socialMediaTime')], probs= c(.25, .75))
+IQR <- IQR(newCovidData[,c('socialMediaTime')])
+
+Lower <- quartiles[1] - 1.5*IQR
+Upper <- quartiles[2] + 1.5*IQR
+
+data_wo_outliers<- subset(data_wo_outliers, 
+                          data_wo_outliers[,c('socialMediaTime')] > Lower & data_wo_outliers[,c('socialMediaTime')] < Upper)
+
+
+#removing tvtime outliers
+
+quartiles<- quantile(newCovidData[,c('tvTime')], probs= c(.25, .75))
+IQR <- IQR(newCovidData[,c('tvTime')])
+
+Lower <- quartiles[1] - 1.5*IQR
+Upper <- quartiles[2] + 1.5*IQR
+
+data_wo_outliers<- subset(data_wo_outliers, 
+                          data_wo_outliers[,c('tvTime')] > Lower & data_wo_outliers[,c('tvTime')] < Upper)
+
+#removing numMeals outliers
+
+quartiles<- quantile(newCovidData[,c('numMeals')], probs= c(.25, .75))
+IQR <- IQR(newCovidData[,c('numMeals')])
+
+Lower <- quartiles[1] - 1.5*IQR
+Upper <- quartiles[2] + 1.5*IQR
+
+data_wo_outliers<- subset(data_wo_outliers, 
+                          data_wo_outliers[,c('numMeals')] > Lower & data_wo_outliers[,c('numMeals')] < Upper)
+
+```
+
+
+```{r echo=FALSE}
+# this algo should work but doesn't... will fix for final version
+#d.out <- function(x) {
+#  quartile1 = quantile(x, probs=.25)
+#  quartile3 =  quantile(x, probs=.75)
+#  
+#  IQR <-quartile3 - quartile1
+#  
+#  x > quartile3 + (IQR*1.5) |x < quartile1 - (IQR*1.5)
+#}
+#
+#remove.out <- function(df.table, columns=names(df.table)) {
+#  for (col in columns) { 
+#    df.table <- df.table[!d.out(df.table[[col]])]
+#}
+#}
+  
+#remove.out(newCovidData, 
+  #         c('classTime','classRating','studyTime','fitnessTime','sleepTime',
+   #          'socialMediaTime','tvTime','numMeals'))
+
+#newCovidData
+```
+
+
+#checking distributions without outliers
+``` {r echo=TRUE}
+hist(data_wo_outliers$Age)
+hist(data_wo_outliers$Region)
+hist(data_wo_outliers$classTime) 
+hist(data_wo_outliers$classRating)
+hist(data_wo_outliers$studyTime)
+hist(data_wo_outliers$fitnessTime)
+hist(data_wo_outliers$sleepTime)
+hist(data_wo_outliers$socialMediaTime)
+hist(data_wo_outliers$tvTime)
+hist(data_wo_outliers$numMeals)
+hist(data_wo_outliers$timeUtilized)
+
+```
+
+
+#second initial fit
+```{r echo=TRUE}
+OLS.init.2 <- lm(classTime ~ ., data = data_wo_outliers)
+summary(OLS.init.2)
+vif(OLS.init.2) #no multicollinearity confirmed
+```
+some variables became insiginificant based on the p-value
+log transform may not be needed anymore since outliers are removed
+HOWEVER, it may still be useful to assess just the outliers as they may be 
+interesting. Maybe assess through PCA weighting next?
+
+
+
+
+
+#fitting an alpha to an elastic plot.
+``` {r echo= TRUE}
+sample <- sample(c(TRUE,FALSE), nrow(newCovidData), replace = TRUE, prob=c(0.7,0.3))
+trainCovid <- newCovidData[sample,]
+testCovid <- newCovidData[!sample,]
+
+xTrain.d1<- as.matrix(trainCovid[,c(-3)])
+yTrain.d1<- as.matrix(trainCovid[,c(3)])
+
+xTest.d1 <- as.matrix(testCovid[,c(-3)])
+yTest.d1 <- as.matrix(testCovid[,c(3)])
+
+
+set.seed(17289)
+
+alphaBest = 0
+bestError = 9999999    # Start out with a huge error
+for (alpha in seq(0, 1, .1))
+{
+  meanError = 0
+  for (i in 1:100)
+  {
+    # Grab test and training sets
+    fitElastic.vid = cv.glmnet(xTrain.d1, yTrain.d1, alpha=alpha, nfolds=10, 
+                                 grouped = FALSE)
+    elasticPred = predict(fitElastic.vid, xTest.d1, s="lambda.1se")
+    meanError = meanError + sqrt(mean((elasticPred - yTest.d1)^2))
+  }
+  meanError = meanError / 100
+  
+  if (meanError < bestError)
+  {
+    alphaBest = alpha
+    bestError = meanError
+  }
+}
+print("Best alpha is: ")
+print(alphaBest) #gave it as 0.8
+print("Gives mean test error: ")
+print(bestError) #very little overfitting
+
+
+#running with best alpha
+
+lamRange = seq(0,3,0.1)
+
+Best.eNet <- cv.glmnet(xTrain.d1, yTrain.d1, alpha=0.8, nfolds = 7, grouped = FALSE)
+
+elasticPred.test = predict(Best.eNet, xTest.d1, s="lambda.1se")
+elasticPred.train =  predict(Best.eNet, xTrain.d1, s="lambda.1se")
+
+rmse.elasticTest = sqrt(mean((elasticPred.test - yTest.d1)^2))
+rmse.elasticTrain = sqrt(mean((elasticPred.train - yTrain.d1)^2))
+
+rmse.elasticTrain
+rmse.elasticTest
+#very little overfitting! but HOW???
+
+
+#checking lasso to confirm we cant have penalized regression
+BestELasso <- glmnet(xTrain.d1, yTrain.d1, alpha=1, lambda = lamRange)
+
+```
+We notice that when running the elastic regression the lambda values cannot
+go after a certain value because %df goes to 0. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r echo=False}
+#saveRDS(covidNum, file = "covidNum.rds")
+#saveRDS(newCovidData, file = "newCovidData.rds")
+```
