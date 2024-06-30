@@ -1,0 +1,1408 @@
+---
+title: "Final Project"
+author: "Art and Co."
+date: "2023-05-05"
+output:
+  word_document: default
+  html_document: default
+---
+Final Project Data
+
+``` {r warning = FALSE, message = FALSE}
+
+
+library(readr)
+library(QuantPsyc) 
+library(psych)
+library(corrplot)
+library(ggplot2)
+library(leaps)
+library(car)
+library(tidyverse)
+library(glmnet)
+library(MASS)
+library(stringdist)
+library(tm) # for text mining Coping
+library(randomForest)
+library(caret)
+library(rattle)
+
+
+
+```
+
+
+
+
+
+#CLEANING AND PRE PROCESSING
+
+
+<u>*Importing and overview of data*</u>
+
+``` {r echo=TRUE}
+covidSurvey <- read_csv("COVID19_Student.csv")
+
+
+#overview of data
+head(covidSurvey)
+summary(covidSurvey)
+
+```
+
+
+
+
+*cleaning and renaming columns - not removing yet*
+
+```{r echo=TRUE}
+
+covidSurvey <- as.data.frame(covidSurvey)
+colNames <- list("ID", "Region", "Age", "classTime", "classRating", "Medium",
+                 "studyTime", "fitnessTime", "sleepTime", "socialMediaTime",
+                 "socialPlatform", "tvTime", "numMeals","weightChange",
+                 "healthIssue", "copingMech", "timeUtilized", "PersonConnection",
+                 "Miss")
+
+names(covidSurvey) <- c(colNames)
+head(covidSurvey)
+
+```
+
+*Adding some tables for the categoricals to understand better FOR COVIDSURVEY*
+
+```{r echo=TRUE}
+#some tables for the categoricals to understand better
+table(covidSurvey$Medium)
+table(covidSurvey$socialPlatform)
+table(covidSurvey$weightChange)
+table(covidSurvey$healthIssue)
+table(covidSurvey$timeUtilized)
+table(covidSurvey$Connection)
+
+```
+
+
+
+<u>*Casting the categorical to numeric - placing this in a separate data set for now.*</u>
+
+
+``` {r echo=TRUE}
+
+covidNum <- covidSurvey
+
+# removing certain columns due to lack of correlation or use
+covidNum <- covidNum[,-c(1)] #took out ID
+covidNum <- covidNum[,-c(1)] #took out the region variable
+#covidNum <- covidNum[,-c("Medium")]
+
+
+
+#likert scale conversion to ordinals
+
+#I am ensuring class rating is being classed ordinally instead of to random values
+table(covidNum$classRating)
+recode <- list("Very poor"=1, "Poor"=2, "Average"=3, "Good"=4, "Excellent"=5)
+covidNum$classRating[is.na(covidNum$classRating)] <- 'Average'
+covidNum$classRating = unlist(recode[as.character(covidNum$classRating)]) 
+table(covidNum$classRating)
+
+#I am ensuring weight is being classed ordinarily instead of to random values
+table(covidNum$weightChange)
+recode <- list("Decreased"=1, "Remain Constant"=2, "Increased"=3)
+covidNum$weightChange[is.na(covidNum$weightChange)] <- 'Remain Constant'
+covidNum$weightChange = unlist(recode[as.character(covidNum$weightChange)]) 
+table(covidNum$weightChange)
+
+#covidNum$weightChange <- factor(covidNum$weightChange, levels = c(1, 2, 3), ordered = T)
+#covidNum$classRating <- factor(covidNum$classRating, levels = c(1, 2, 3, 4,), ordered = T)
+
+
+
+
+#binary conversion
+covidNum<- covidNum %>%
+  mutate(healthIssue = ifelse(tolower(healthIssue) == "yes",1,0)) %>%
+  mutate(timeUtilized = ifelse(tolower(timeUtilized) == "yes",1,0)) %>%
+  mutate(PersonConnection = ifelse(tolower(PersonConnection) == "yes",1,0))
+
+covidNum$tvTime <- as.numeric(covidNum$tvTime) #changed the tvTime from char to double. still has NAs to remove
+
+
+
+
+table(covidNum$Miss) 
+#I see here the main categories are school, friends/family, nothing, being outside (travelling, eating outside)
+
+recode2 <- list('.' = 'friends/family',
+                'all' = 'friends/family',
+                'All' = 'friends/family',
+                'All ' = 'friends/family',
+                'ALL' = 'friends/family',
+                'All above' = 'friends/family',
+                'all of the above' = 'friends/family',
+                'All of the above' = 'friends/family',
+                'All of them' = 'friends/family',
+                'All the above' = 'friends/family',
+                'Badminton in court' = 'outside',
+                'Being social' = 'friends/family',
+                'Colleagues' = 'friends/family',
+                'Eating outside' = 'outside',
+                'Eating outside and friends.' = 'friends/family',
+                'everything' = 'friends/family',
+                'Family' = 'friends/family',
+                'Family ' = 'friends/family',
+                'Football' = 'outside',
+                'Friends , relatives' = 'friends/family',
+                'Friends and roaming around freely' = 'friends/family',
+                'Friends and School' = 'friends/family',
+                'Friends, relatives & travelling' = 'friends/family',
+                "Friends,Romaing and traveling" = 'friends/family',
+                "Going to the movies" = 'friends/family',
+                "Gym" = 'outside',
+                "I have missed nothing" = 'nothing',
+                "Internet"= 'nothing',
+                "Job"= 'outside',
+                "Metro"= 'outside',
+                "My normal routine"= 'nothing',
+                "Nah, this is my usual lifestyle anyway, just being lazy...."= 'nothing',
+                "Normal life"= 'nothing',
+                "nothing"= 'nothing',
+                "Nothing"= 'nothing',
+                "NOTHING"= 'nothing',
+                "Nothing " = 'nothing',
+                'Nothing this is my usual life'= 'nothing',
+                'Only friends'= 'friends/family',
+                'Playing'= 'friends/family',
+                'Previous mistakes'= 'outside',
+                'Roaming around freely'= 'outside',
+                'School and friends.'= 'school',
+                'School and my school friends'= 'school',
+                'school, relatives and friends'= 'school',
+                'School/college'= 'school',
+                'Taking kids to park'= 'outside',
+                'The idea of being around fun loving people but this time has certainly made us all to reconnect (and fill the gap if any) with our families and relatives so it is fun but certainly we do miss hanging out with friends'='friends/family', 
+                'To stay alone.'= 'nothing',
+                'Travelling'= 'outside',
+                'Travelling & Friends' = 'outside',
+                ' ' = 'nothing')
+
+covidNum$Miss[is.na(covidNum$Miss)] <- 'nothing' #replacing nulls with nothing
+covidNum$Miss = unlist(recode2[as.character(covidNum$Miss)]) 
+table(covidNum$Miss)
+
+
+
+#covidNum$Region <- unclass(as.factor(covidNum$Region))
+
+#if you want to unclass the categoricals de-comment this:
+#dont forget to remove copingMech:
+
+covidNum$Medium <- unclass(as.factor(covidNum$Medium))
+covidNum$socialPlatform <- unclass(as.factor(covidNum$socialPlatform))
+#covidNum$Miss <- unclass(as.factor(covidNum$Miss))
+covidNum <- covidNum[,!(names(covidNum) == "copingMech")]
+
+
+head(covidNum)
+```
+
+
+Looking at summary and distributions of each variable 
+we found some NAs in classRating,Medium, and TvTime so we modified the columns
+
+``` {r echo=TRUE}
+summary(covidNum)
+
+covidNum$classRating[is.na(covidNum$classRating)] <- 3 #replacing missing class rating with median value
+covidNum$Medium[is.na(covidNum$Medium)] <- 0 #replacing missing medium (social media) with 0 / no medium
+head(covidNum)
+
+covidNum$tvTime[is.na(covidNum$tvTime)] <- 0 #replacing the NAs with 0 due to NA being "no TV" in char
+head(covidNum)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+#EXPLORATORY - Visualizations, histograms, tables
+
+
+
+*checking skew with histograms of the variables*
+
+``` {r echo=TRUE}
+
+hist(covidNum$Age) #right skew, makes sense for students
+hist(covidNum$classTime) #right skew
+hist(covidNum$classRating) #three spikes . there must be a way to make this hist look better.
+hist(covidNum$studyTime) #right skew  also an outlier
+hist(covidNum$fitnessTime) #heavy right skew
+hist(covidNum$sleepTime) #pretty even!
+hist(covidNum$socialMediaTime) #right skew
+hist(covidNum$tvTime) #massive right skew with an outlier
+hist(covidNum$numMeals) #kind of normal
+hist(covidNum$timeUtilized) #even split
+
+```
+
+
+
+*checking out the intervariable correlation using corrplot*
+```{r echo=TRUE}
+
+#classic correlation plot and bubble-corr plot - removing ID, copingMech, and MISS
+
+
+corrCovid <- covidNum
+
+
+head(corrCovid)
+
+summary(corrCovid)
+
+corrCovid <- sapply(corrCovid[,-16],as.numeric)
+corrCovid<- as.data.frame(corrCovid)
+
+
+#sapply(corrCovid,class)
+#plot(corrCovid)
+
+corrplot(cor(corrCovid))
+
+pairs.panels(corrCovid)
+```
+
+We notice that vast majority of variable have little to no correlation. This means that there will be very few variables that could explain the dataset variance and will likely issue an inaccurate model. 
+
+
+
+
+``` {r include=FALSE}
+# these actions have already been done. kept this for all to confirm that its implemented in prior chunks
+#otherwise the PCA or corr table wouldn't work
+
+# df <- mutate_all(corrCovid, function(x) as.numeric(as.character(x))) #wasn't reading the factors as nums so had to convert
+# 
+# #df2 <- df[,-c(10)] #remove tv time because it was being weird - idk why !!! fixed it
+# 
+# corrplot(cor(df), method= "circle") 
+# 
+# 
+# corrplot(cor(df), method = "color", type = "upper", order = "hclust")
+# 
+# covidNum <- df
+```
+
+
+
+*Scatter plot vizualization* 
+
+```{r echo=TRUE}
+summary(corrCovid)
+
+ggplot(corrCovid, aes(Age,socialMediaTime)) + geom_point() 
+
+ggplot(corrCovid, aes(socialPlatform, Age)) + geom_point() 
+
+ggplot(corrCovid, aes(Age, fitnessTime)) + geom_point() 
+
+ggplot(corrCovid, aes(Age, studyTime)) + geom_point() 
+
+ggplot(corrCovid, aes(Age, sleepTime)) + geom_point() 
+
+ggplot(corrCovid, aes(Age, healthIssue)) + geom_point() 
+
+ggplot(corrCovid, aes(healthIssue, sleepTime)) + geom_point() 
+
+ggplot(corrCovid, aes(healthIssue, fitnessTime)) + geom_point() 
+
+ggplot(corrCovid, aes(socialMediaTime, PersonConnection)) + geom_point() 
+
+ggplot(corrCovid, aes(classTime,socialMediaTime)) + geom_point() 
+
+ggplot(corrCovid, aes(socialPlatform, classTime)) + geom_point() 
+
+ggplot(corrCovid, aes(classTime, fitnessTime)) + geom_point() 
+
+ggplot(corrCovid, aes(classTime, studyTime)) + geom_point() 
+
+ggplot(corrCovid, aes(classTime, sleepTime)) + geom_point() 
+
+ggplot(corrCovid, aes(classTime, healthIssue)) + geom_point() 
+
+```
+
+Exploration summary:
+
+looks like study time and sleep time are inversely correlated (shocker)
+fitness time and study time are positively correlated with time Utilized
+fitness and connection positively correlated
+correlations are not super strong on their own. Gives us a chance to combine factors
+
+
+
+
+
+
+
+
+
+
+
+# VARIABLE TRANSFORMATIONS 
+
+We tried multiple data tranformations in hopes of increasing our dataset correlations. We removed outliars, we log transformed continuous variables, and we attempted to bucket some continuous variables.
+
+*removing outliers outside of IQR*
+
+``` {r echo=TRUE}
+#removing classtime outliers
+quartiles<- quantile(covidNum[,c('classTime')], probs= c(.25, .75))
+IQR <- IQR(covidNum[,c('classTime')])
+  
+Lower <- quartiles[1] - 1.5*IQR
+Upper <- quartiles[2] + 1.5*IQR
+  
+data_wo_outliers<- subset(covidNum, 
+                          covidNum[,c('classTime')] > Lower & covidNum[,c('classTime')] < Upper)
+
+
+
+#removing studyTime outliers
+
+quartiles<- quantile(covidNum[,c('studyTime')], probs= c(.25, .75))
+IQR <- IQR(covidNum[,c('studyTime')])
+
+Lower <- quartiles[1] - 1.5*IQR
+Upper <- quartiles[2] + 1.5*IQR
+
+data_wo_outliers<- subset(data_wo_outliers, 
+                          data_wo_outliers[,c('studyTime')] > Lower & data_wo_outliers[,c('studyTime')] < Upper)
+
+
+#removing fitnessTime outliers
+
+quartiles<- quantile(covidNum[,c('fitnessTime')], probs= c(.25, .75))
+IQR <- IQR(covidNum[,c('fitnessTime')])
+
+Lower <- quartiles[1] - 1.5*IQR
+Upper <- quartiles[2] + 1.5*IQR
+
+data_wo_outliers<- subset(data_wo_outliers, 
+                          data_wo_outliers[,c('fitnessTime')] > Lower & data_wo_outliers[,c('fitnessTime')] < Upper)
+
+
+#removing sleepTime outliers
+
+quartiles<- quantile(covidNum[,c('sleepTime')], probs= c(.25, .75))
+IQR <- IQR(covidNum[,c('sleepTime')])
+
+Lower <- quartiles[1] - 1.5*IQR
+Upper <- quartiles[2] + 1.5*IQR
+
+data_wo_outliers<- subset(data_wo_outliers, 
+                          data_wo_outliers[,c('sleepTime')] > Lower & data_wo_outliers[,c('sleepTime')] < Upper)
+
+
+#removing socMedTIme outliers
+
+quartiles<- quantile(covidNum[,c('socialMediaTime')], probs= c(.25, .75))
+IQR <- IQR(covidNum[,c('socialMediaTime')])
+
+Lower <- quartiles[1] - 1.5*IQR
+Upper <- quartiles[2] + 1.5*IQR
+
+data_wo_outliers<- subset(data_wo_outliers, 
+                          data_wo_outliers[,c('socialMediaTime')] > Lower & data_wo_outliers[,c('socialMediaTime')] < Upper)
+
+
+#removing tvtime outliers
+
+quartiles<- quantile(covidNum[,c('tvTime')], probs= c(.25, .75))
+IQR <- IQR(covidNum[,c('tvTime')])
+
+Lower <- quartiles[1] - 1.5*IQR
+Upper <- quartiles[2] + 1.5*IQR
+
+data_wo_outliers<- subset(data_wo_outliers, 
+                          data_wo_outliers[,c('tvTime')] > Lower & data_wo_outliers[,c('tvTime')] < Upper)
+
+#removing numMeals outliers
+
+quartiles<- quantile(covidNum[,c('numMeals')], probs= c(.25, .75))
+IQR <- IQR(covidNum[,c('numMeals')])
+
+Lower <- quartiles[1] - 1.5*IQR
+Upper <- quartiles[2] + 1.5*IQR
+
+data_wo_outliers<- subset(data_wo_outliers, 
+                          data_wo_outliers[,c('numMeals')] > Lower & data_wo_outliers[,c('numMeals')] < Upper)
+
+```
+
+
+
+
+#Log transforming highly skewed variables
+```{r echo=TRUE}
+data_log <- covidNum
+
+logvariables <- names(covidNum)
+
+
+for (variable in logvariables) {
+  if (is.numeric(data_log[[variable]]) && !anyNA(data_log[[variable]])) {
+    data_log[[variable]] <- log(data_log[[variable]] + 1)
+  } else {
+    # Handle non-numeric or missing values
+    # You can choose to skip, impute, or handle them based on your specific requirements
+    print(paste("Skipping variable:", variable))
+  }
+}
+
+head(data_log)
+```
+
+
+
+#checking distributions without outliers
+``` {r echo=TRUE}
+
+hist(data_wo_outliers$Age)
+hist(data_wo_outliers$classTime) 
+hist(data_wo_outliers$classRating)
+hist(data_wo_outliers$studyTime)
+hist(data_wo_outliers$fitnessTime)
+hist(data_wo_outliers$sleepTime)
+hist(data_wo_outliers$socialMediaTime)
+hist(data_wo_outliers$tvTime)
+hist(data_wo_outliers$numMeals)
+hist(data_wo_outliers$timeUtilized)
+hist(data_wo_outliers$weightChange)
+hist(data_wo_outliers$Medium)
+hist(data_wo_outliers$PersonConnection)
+
+```
+
+
+#checking distributions with log distibution
+``` {r echo=TRUE}
+hist(data_log$Age)
+hist(data_log$classTime) 
+hist(data_log$classRating)
+hist(data_log$studyTime)
+hist(data_log$fitnessTime)
+hist(data_log$sleepTime)
+hist(data_log$socialMediaTime)
+hist(data_log$tvTime)
+hist(data_log$numMeals)
+hist(data_log$timeUtilized)
+hist(data_log$weightChange)
+hist(data_log$Medium)
+hist(data_log$PersonConnection)
+
+```
+
+
+
+*binning variables to check to tackle lack of correlation*
+
+```{r echo=TRUE}
+
+CovNumBin <- covidNum
+
+CovNumBin$ageBins <- cut(CovNumBin$Age, breaks = 5, labels = FALSE, include.lowest = TRUE)
+
+CovNumBin$sleepTimeBin <- cut(CovNumBin$sleepTime, breaks = 5, labels = FALSE, include.lowest = TRUE)
+
+CovNumBin$fitnessBins <- cut(CovNumBin$fitnessTime, breaks = 3, labels = FALSE, include.lowest = TRUE)
+
+CovNumBin$SMbin <- cut(CovNumBin$socialMediaTime, breaks = 3, labels = FALSE, include.lowest = TRUE)
+
+CovNumBin$tvBin <- cut(CovNumBin$tvTime, breaks = 3, labels = FALSE, include.lowest = TRUE)
+
+CovNumBin$classBin <- cut(CovNumBin$classTime, breaks = 4, labels = FALSE, include.lowest = TRUE)
+
+
+colNonBin <- c("Age","sleepTime","fitnessTime", "socialMediaTime","tvTime","classTime")
+
+
+CovNumBin <- CovNumBin[ , !(names(CovNumBin) %in% colNonBin)]
+
+
+#CovNumBin <- sapply(CovNumBin,as.numeric)
+#CovNumBin<- as.data.frame(CovNumBin)
+
+
+summary(CovNumBin)
+
+```
+
+```{r echo=TRUE}
+
+CovNumLogBin <- data_log
+
+CovNumLogBin$ageBins <- cut(CovNumLogBin$Age, breaks = 5, labels = FALSE, include.lowest = TRUE)
+
+CovNumLogBin$sleepTimeBin <- cut(CovNumLogBin$sleepTime, breaks = 5, labels = FALSE, include.lowest = TRUE)
+
+CovNumLogBin$fitnessBins <- cut(CovNumLogBin$fitnessTime, breaks = 3, labels = FALSE, include.lowest = TRUE)
+
+CovNumLogBin$SMbin <- cut(CovNumLogBin$socialMediaTime, breaks = 3, labels = FALSE, include.lowest = TRUE)
+
+CovNumLogBin$tvBin <- cut(CovNumLogBin$tvTime, breaks = 3, labels = FALSE, include.lowest = TRUE)
+
+CovNumLogBin$classBin <- cut(CovNumLogBin$classTime, breaks = 4, labels = FALSE, include.lowest = TRUE)
+
+
+colNonLogBin <- c("Age","sleepTime","fitnessTime", "socialMediaTime","tvTime","classTime")
+
+
+CovNumLogBin <- CovNumLogBin[ , !(names(CovNumLogBin) %in% colNonLogBin)]
+
+
+#CovNumLogBin <- sapply(CovNumLogBin,as.numeric)
+#CovNumLogBin<- as.data.frame(CovNumLogBin)
+
+
+
+
+summary(CovNumLogBin)
+
+```
+
+
+```{r echo=TRUE}
+
+corrplot(cor(as.data.frame(sapply(covidNum[,-16],as.numeric))))
+
+corrplot(cor(as.data.frame(sapply(CovNumBin[,-10],as.numeric))))
+
+corrplot(cor(as.data.frame(sapply(data_log[,-16],as.numeric))))
+
+corrplot(cor(as.data.frame(sapply(CovNumLogBin[,-10],as.numeric))))
+```
+
+Transformation summary:
+
+The tranformations had limited improvement in correlation. 
+
+
+
+
+
+
+
+#FACTOR ANALYSIS
+
+
+
+*prcomp scree plot to show which variables are contributing most in variability*
+``` {r echo=TRUE, warning = FALSE}
+
+p1 = prcomp(corrCovid, scale = T)
+p1
+summary(p1) 
+
+plot(p1)
+abline(1, 0, col="red")
+```
+
+Lets run a parallel analysis for component number pick
+```{r echo=TRUE}
+parallel_cvid = fa.parallel(corrCovid, n.iter=250)
+parallel_cvid
+
+```
+
+
+```{r echo=TRUE}
+#lets rotate the data
+p2 = principal(corrCovid, rotate = "varimax", nfactors = 6)
+print(p2$loadings, cutoff = 0.4, sort=T)
+
+```
+*Factor Analysis Summary*
+we can see from summary that, when scaled, the variables contribute
+fairly evenly to the overall variance of the dataset
+we notice that PC6-7 variables take up the largest variances.
+The unrotated summary computed that RC3 explains more variance than RC1, RC4 more
+than RC2, RC6 more than RC5. Not certain why that is.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# REGRESSIONS (OLS, and Elastic Net)
+
+
+
+*plotting initial OLS fit*
+``` {r echo=TRUE}
+OLS.init <- lm(classTime ~ ., data = covidNum)
+summary(OLS.init)
+vif(OLS.init) #no multicollinearity confirmed
+#0.1 R2 with 8 significant variables. 
+
+```
+
+
+
+
+*second initial fit with log transformed data*
+```{r echo=TRUE}
+OLS.init.2 <- lm(classTime ~ ., data = data_log)
+summary(OLS.init.2)
+vif(OLS.init.2) #no multicollinearity confirmed
+```
+some variables became insiginificant based on the p-value
+log transform may not be needed anymore since outliers are removed
+HOWEVER, it may still be useful to assess just the outliers as they may be 
+interesting. Maybe assess through PCA weighting next?
+
+
+
+
+
+*fitting an alpha to an elastic plot.*
+``` {r echo= TRUE}
+sample <- sample(c(TRUE,FALSE), nrow(covidNum), replace = TRUE, prob=c(0.7,0.3))
+trainCovid <- data_log[sample,-16]
+testCovid <- data_log[!sample,-16]
+
+xTrain.d1<- as.matrix(trainCovid[,c(-3)])
+yTrain.d1<- as.matrix(trainCovid[,c(3)])
+
+xTest.d1 <- as.matrix(testCovid[,c(-3)])
+yTest.d1 <- as.matrix(testCovid[,c(3)])
+
+
+set.seed(17289)
+
+alphaBest = 0
+bestError = 9999999    # Start out with a huge error
+for (alpha in seq(0, 1, .1))
+{
+  meanError = 0
+  for (i in 1:100)
+  {
+    # Grab test and training sets
+    fitElastic.vid = cv.glmnet(xTrain.d1, yTrain.d1, alpha=alpha, nfolds=10, 
+                                 grouped = FALSE)
+    elasticPred = predict(fitElastic.vid, xTest.d1, s="lambda.1se")
+    meanError = meanError + sqrt(mean((elasticPred - yTest.d1)^2))
+  }
+  meanError = meanError / 100
+  
+  if (meanError < bestError)
+  {
+    alphaBest = alpha
+    bestError = meanError
+  }
+}
+print("Best alpha is: ")
+print(alphaBest) #gave it as 0.8
+print("Gives mean test error: ")
+print(bestError) #very little overfitting
+
+
+#running with best alpha
+
+lamRange = seq(0,3,0.1)
+
+Best.eNet <- cv.glmnet(xTrain.d1, yTrain.d1, alpha=0.8, nfolds = 7, grouped = FALSE)
+
+elasticPred.test = predict(Best.eNet, xTest.d1, s="lambda.1se")
+elasticPred.train =  predict(Best.eNet, xTrain.d1, s="lambda.1se")
+
+rmse.elasticTest = sqrt(mean((elasticPred.test - yTest.d1)^2))
+rmse.elasticTrain = sqrt(mean((elasticPred.train - yTrain.d1)^2))
+
+rmse.elasticTrain
+rmse.elasticTest
+#very little overfitting! but HOW???
+
+
+#checking lasso to confirm we cant have penalized regression
+BestELasso <- glmnet(xTrain.d1, yTrain.d1, alpha=1, lambda = lamRange)
+BestELasso
+```
+We notice that when running the elastic regression the lambda values cannot
+go after a certain value because %df goes to 0. 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# LDA Analysis
+
+Linear Discriminant Analysis (LDA) is a powerful technique when it comes to classifying categorical variables. LDA is particularly useful because it assumes a linear relationship between the predictors and the categorical response variable. It aims to find a linear combination of the predictors that maximally separates the different categories, allowing for effective classification.
+
+One key advantage of LDA is its ability to handle multiple classes simultaneously. It can handle situations where there are more than two categories to classify. By considering the relationships between all the classes together, LDA can provide a comprehensive understanding of the discriminant structure in the data.
+
+Another benefit of LDA is its dimensionality reduction capability. LDA transforms the original predictor space into a lower-dimensional space, known as the discriminant space. This transformation reduces the dimensionality while still preserving most of the discriminatory information. This is especially valuable when dealing with high-dimensional categorical data, as it helps alleviate the curse of dimensionality and can improve the classification accuracy by focusing on the most discriminative features.
+
+```{r include= FALSE}
+##this code block is a function provided by Prof to calculate contingency matrix accuracy for LDA
+
+confusion = function(actual, predicted, names = NULL, printit = TRUE, prior = NULL) 
+{
+  if (is.null(names))
+    names = levels(actual)
+  tab = table(actual, predicted)
+  acctab = t(apply(tab, 1, function(x) x/sum(x)))
+  dimnames(acctab) = list(Actual = names, "Predicted (cv)" = names)
+  if (is.null(prior)) 
+  {
+    relnum = table(actual)
+    prior = relnum/sum(relnum)
+    acc = sum(tab[row(tab) == col(tab)])/sum(tab)
+  }
+  else 
+  {
+    acc = sum(prior * diag(acctab))
+    names(prior) = names
+  }
+  
+  print(round(c("Accuracy" = acc, "Prior Frequency" = prior), 4))
+  cat("\nConfusion Matrix", "\n")
+  print(round(acctab, 4))
+}
+
+```
+
+
+``` {r echo = TRUE}
+c <- covidNum[,c(1,2,5,6,7,8,11)] #is there a reason you didn't include tvTime aka 11th column
+head(c)
+
+
+
+c <- log((c[,])+1)
+head(c)
+
+#starting with PCA for these
+p=prcomp(c)
+summary(p)
+#I think an issue here is that we need at least 5 PCs
+
+#adding class back in
+cp <- as.data.frame(p$x)
+cp$Miss <- covidNum$Miss
+
+cp$Miss <- as.factor(cp$Miss)
+
+plot(cp$PC1, cp$PC2, col=cp$Miss, pch=1, cex=.5, xlab="PC1", ylab="PC2")
+
+#LDA - commenting out this as it didn't work, leaving it to show the attempt.
+# fit = lda(sleepBin ~ studyTime, data=c)
+# print(fit)      
+# plot(fit)
+#I have tried: social media and study time to predict ageBin, studytime and fitnessTime to predict sleep Bin,
+#and fitnessTime, studyTime, socialMediaTime to predict timeUtilized. none have been successful.
+
+
+#now I am trying to use all the continuous variables to predict the 
+#categories Miss (reclassed earlier) --> was very promising, until my computer shut down :( ) or Medium (of the course)
+#LDA session two!! #woohoo it works
+
+c$Miss <- as.factor(covidNum$Miss)
+fit = lda(Miss ~ ., data=c)
+print(fit)
+plot(fit)
+
+
+
+#plotting the fit using the LDA
+ldaResult = predict(fit)
+plot(ldaResult$x, col=ldaResult$class)
+#ldahist(ldaResult$x[,1], g=class)
+ldaResult$class
+
+#confusion matrix - room for improvement
+table(c$Miss, ldaResult$class)
+
+#computing accuracy of the confusion matrix
+confusion(c$Miss, ldaResult$class)
+
+```
+
+The results of our LDA show that our model is not very efficient at predicting the categories of the MISS variables. We can see that the overall accuracy is 45.85%. The Model seems to be very biased towards predicting many instances as 'outside' and very poor at predicting that people missed 'nothing. 
+
+From the lda model summary we can see that Age and number of meals are the most impacting factors. This is, however, rather ininteresting information. For a test we will take them out to see the impact.
+
+```{r echo=TRUE}
+
+c <- covidNum[,c(2,5,6,7,8)] #is there a reason you didn't include tvTime aka 11th column
+head(c)
+
+
+
+c <- log((c[,])+1)
+head(c)
+
+#starting with PCA for these
+p=prcomp(c)
+summary(p)
+#I think an issue here is that we need at least 5 PCs
+
+#adding class back in
+cp <- as.data.frame(p$x)
+cp$Miss <- covidNum$Miss
+
+cp$Miss <- as.factor(cp$Miss)
+
+plot(cp$PC1, cp$PC2, col=cp$Miss, pch=1, cex=.5, xlab="PC1", ylab="PC2")
+
+#LDA - commenting out this as it didn't work, leaving it to show the attempt.
+# fit = lda(sleepBin ~ studyTime, data=c)
+# print(fit)      
+# plot(fit)
+#I have tried: social media and study time to predict ageBin, studytime and fitnessTime to predict sleep Bin,
+#and fitnessTime, studyTime, socialMediaTime to predict timeUtilized. none have been successful.
+
+
+#now I am trying to use all the continuous variables to predict the 
+#categories Miss (reclassed earlier) --> was very promising, until my computer shut down :( ) or Medium (of the course)
+#LDA session two!! #woohoo it works
+
+c$Miss <- as.factor(covidNum$Miss)
+fit = lda(Miss ~ ., data=c)
+print(fit)
+plot(fit)
+
+
+
+#plotting the fit using the LDA
+ldaResult = predict(fit)
+plot(ldaResult$x, col=ldaResult$class)
+#ldahist(ldaResult$x[,1], g=class)
+ldaResult$class
+
+#confusion matrix - room for improvement
+table(c$Miss, ldaResult$class)
+
+#computing accuracy of the confusion matrix
+confusion(c$Miss, ldaResult$class)
+
+```
+
+We now see that sleepTime, class Time , and FitnessTime are the biggest contributors to LDA
+
+Summary LDA :
+
+*to be written*
+
+
+
+
+
+
+
+
+#Extra Credit: Random Forest
+
+Random Forest is a powerful algorithm for binary classification that offers several benefits. One of its key advantages is its ability to handle overfitting effectively. Random Forest mitigates overfitting by constructing an ensemble of decision trees and aggregating their predictions. Each tree in the forest is trained on a random subset of the data and features, reducing the risk of overfitting to specific patterns or noise in the dataset. By combining multiple trees, Random Forest provides a more robust and generalized model that can better handle unseen data.
+
+The logic behind the decision tree building in Random Forest is also crucial for its performance. Each decision tree is constructed using a randomized feature selection process. At each split, a random subset of features is considered, ensuring that no single feature dominates the tree-building process. This randomization helps to capture diverse and relevant features, leading to better overall model performance. Additionally, Random Forest utilizes a voting mechanism to make predictions. Each tree independently predicts the class, and the final prediction is determined by majority voting. This ensemble approach reduces the impact of individual noisy or biased trees, resulting in more accurate and reliable predictions.
+
+Random Forest is a versatile and robust algorithm for binary classification tasks. Its ability to handle over fitting, the randomized feature selection process, and the ensemble-based decision-making contribute to its effectiveness. These characteristics make Random Forest a popular choice in various domains, including healthcare, finance, and image recognition, where accurate classification is essential.
+
+In our case, Random Forest is especially useful since our dataset has low inter-variable correlations. there are still a few assumptions and considerations to keep in mind when working with Random Forest:
+
+Independence of Observations: Like other machine learning algorithms, Random Forest assumes that the observations in the dataset are independent of each other. The algorithm treats each observation as an individual data point and does not consider any dependencies or correlations between them.
+
+Randomness and Unbiasedness: Random Forest relies on the assumption that the data used for training is representative of the population it aims to generalize to. The algorithm assumes that the data is randomly sampled and unbiased, without any systematic biases or errors that may influence the predictions.
+
+Appropriate Feature Representation: It is important to ensure that the features used in the Random Forest model are appropriately represented and contain relevant information for the classification task. Irrelevant or noisy features may introduce unnecessary complexity and hinder the model's performance.
+
+Balanced Class Distribution: While Random Forest can handle imbalanced class distributions to some extent, it generally performs better when the classes in the dataset are balanced. Highly imbalanced classes may require additional techniques, such as class weighting or resampling, to improve the model's performance.
+
+Sensible Hyperparameter Selection: Random Forest has several hyperparameters that need to be tuned appropriately for optimal performance. The selection of hyperparameters, such as the number of trees (ntree), the maximum depth of trees (max_depth), or the number of variables considered at each split (mtry), should be done carefully to avoid overfitting or underfitting the model.
+
+To check for overfitting we will check the Feature Importance metric.
+With a chart in hand, we will analyze the feature importance output from the Random Forest model. If certain features have extremely high importance while others have negligible importance, it may indicate overfitting. Overfitting can lead the model to overemphasize noisy or irrelevant features while disregarding more meaningful ones.
+
+
+
+
+*!!! I need to group the CopingMech variable and add it back in !!!*
+
+redoing the data transform to include the categorical variables:
+``` {r include=FALSE}
+
+covidNum2 <- covidSurvey
+
+# removing certain columns due to lack of correlation or use
+covidNum2 <- covidNum2[,-c(1)] #took out ID
+covidNum2 <- covidNum2[,-c(1)] #took out the region variable
+#covidNum <- covidNum[,-c("Medium")]
+
+
+
+#likert scale conversion to ordinals
+
+#I am ensuring class rating is being classed ordinally instead of to random values
+table(covidNum2$classRating)
+recode <- list("Very poor"=1, "Poor"=2, "Average"=3, "Good"=4, "Excellent"=5)
+covidNum2$classRating[is.na(covidNum2$classRating)] <- 'Average'
+covidNum2$classRating = unlist(recode[as.character(covidNum2$classRating)]) 
+table(covidNum2$classRating)
+
+#I am ensuring weight is being classed ordinarily instead of to random values
+table(covidNum2$weightChange)
+recode <- list("Decreased"=1, "Remain Constant"=2, "Increased"=3)
+covidNum2$weightChange[is.na(covidNum2$weightChange)] <- 'Remain Constant'
+covidNum2$weightChange = unlist(recode[as.character(covidNum2$weightChange)]) 
+table(covidNum2$weightChange)
+
+covidNum2$weightChange <- factor(covidNum2$weightChange, levels = c(1, 2, 3), ordered = T)
+covidNum2$classRating <- factor(covidNum2$classRating, levels = c(1, 2, 3, 4, 5), ordered = T)
+
+
+
+
+#binary conversion
+covidNum2<- covidNum2 %>%
+  mutate(healthIssue = ifelse(tolower(healthIssue) == "yes",1,0)) %>%
+  mutate(timeUtilized = ifelse(tolower(timeUtilized) == "yes",1,0)) %>%
+  mutate(PersonConnection = ifelse(tolower(PersonConnection) == "yes",1,0))
+
+covidNum2$tvTime <- as.numeric(covidNum2$tvTime) #changed the tvTime from char to double. still has NAs to remove
+
+
+
+
+table(covidNum2$Miss) 
+#I see here the main categories are school, friends/family, nothing, being outside (travelling, eating outside)
+
+recode2 <- list('.' = 'friends/family',
+                'all' = 'friends/family',
+                'All' = 'friends/family',
+                'All ' = 'friends/family',
+                'ALL' = 'friends/family',
+                'All above' = 'friends/family',
+                'all of the above' = 'friends/family',
+                'All of the above' = 'friends/family',
+                'All of them' = 'friends/family',
+                'All the above' = 'friends/family',
+                'Badminton in court' = 'outside',
+                'Being social' = 'friends/family',
+                'Colleagues' = 'friends/family',
+                'Eating outside' = 'outside',
+                'Eating outside and friends.' = 'friends/family',
+                'everything' = 'friends/family',
+                'Family' = 'friends/family',
+                'Family ' = 'friends/family',
+                'Football' = 'outside',
+                'Friends , relatives' = 'friends/family',
+                'Friends and roaming around freely' = 'friends/family',
+                'Friends and School' = 'friends/family',
+                'Friends, relatives & travelling' = 'friends/family',
+                "Friends,Romaing and traveling" = 'friends/family',
+                "Going to the movies" = 'friends/family',
+                "Gym" = 'outside',
+                "I have missed nothing" = 'nothing',
+                "Internet"= 'nothing',
+                "Job"= 'outside',
+                "Metro"= 'outside',
+                "My normal routine"= 'nothing',
+                "Nah, this is my usual lifestyle anyway, just being lazy...."= 'nothing',
+                "Normal life"= 'nothing',
+                "nothing"= 'nothing',
+                "Nothing"= 'nothing',
+                "NOTHING"= 'nothing',
+                "Nothing " = 'nothing',
+                'Nothing this is my usual life'= 'nothing',
+                'Only friends'= 'friends/family',
+                'Playing'= 'friends/family',
+                'Previous mistakes'= 'outside',
+                'Roaming around freely'= 'outside',
+                'School and friends.'= 'school',
+                'School and my school friends'= 'school',
+                'school, relatives and friends'= 'school',
+                'School/college'= 'school',
+                'Taking kids to park'= 'outside',
+                'The idea of being around fun loving people but this time has certainly made us all to reconnect (and fill the gap if any) with our families and relatives so it is fun but certainly we do miss hanging out with friends'='friends/family', 
+                'To stay alone.'= 'nothing',
+                'Travelling'= 'outside',
+                'Travelling & Friends' = 'outside',
+                ' ' = 'nothing')
+
+covidNum2$Miss[is.na(covidNum$Miss)] <- 'nothing' #replacing nulls with nothing
+covidNum2$Miss = unlist(recode2[as.character(covidNum2$Miss)]) 
+table(covidNum2$Miss)
+
+
+
+#covidNum$Region <- unclass(as.factor(covidNum$Region))
+
+#if you want to unclass the categoricals de-comment this:
+#dont forget to remove copingMech:
+
+#covidNum$Medium <- unclass(as.factor(covidNum$Medium))
+#covidNum$socialPlatform <- unclass(as.factor(covidNum$socialPlatform))
+#covidNum$Miss <- unclass(as.factor(covidNum$Miss))
+
+
+covidNum2 <- covidNum2[,!(names(covidNum2) == "copingMech")]
+
+
+#head(covidNum2)
+
+
+
+covidNum2$classRating[is.na(covidNum2$classRating)] <- 3 #replacing missing class rating with median value
+covidNum2$Medium[is.na(covidNum2$Medium)] <- 0 #replacing missing medium (social media) with 0 / no medium
+head(covidNum2)
+
+covidNum2$tvTime[is.na(covidNum2$tvTime)] <- 0 #replacing the NAs with 0 due to NA being "no TV" in char
+head(covidNum2)
+
+summary(covidNum2)
+```
+
+
+
+```{r echo=TRUE}
+# 
+# install.packages("randomForest")
+# install.packages("ggplot2")
+# library(randomForest)
+# library(ggplot2)
+# 
+#library(caret)
+
+
+#converting some variables to factors so we can perform classification instead of regression
+#covidNum2[,c(4,9,13,14,15,16)] <- as.factor(covidNum2[,c(4,9,13,14,15,16)])
+#sapply(covidNum2, class)
+
+covidNum2$timeUtilized <- as.factor(covidNum2$timeUtilized)
+
+
+set.seed(8219)
+train_idx <- sample(1:nrow(covidNum2), 0.75 * nrow(covidNum2))
+train_data <- covidNum2[train_idx, ]
+test_data <- covidNum2[-train_idx, ]
+
+train_control <- trainControl(method = "cv", number = 10)
+
+# Fit the Random Forest model
+rf_model <- randomForest(timeUtilized ~ ., data = train_data, ntree = 100, trControl = train_control)
+
+#importance of variables chart
+varImpPlot(rf_model)
+
+# Make predictions on the test data
+predictions <- predict(rf_model, test_data)
+
+# test confusion Matrix
+confusion_matrix <- table(test_data$timeUtilized, predictions)
+confusion_matrix
+
+# Calculate accuracy on test data
+confusion_matrix <- table(test_data$timeUtilized, predictions)
+test_accuracy <- sum(diag(confusion_matrix)) / sum(confusion_matrix)
+
+cat("Test Accuracy:", test_accuracy, "\n")
+
+
+
+# Visualization of a Decision Tree
+library(reprtree)
+
+repTree <- ReprTree(rf_model, covidNum2, metric='d2')
+
+#this plots one of the trees
+reprtree:::plot.getTree(rf_model, k = 1, depth = 6)
+reprtree:::plot.getTree(rf_model, k = 3, depth = 6)
+reprtree:::plot.getTree(rf_model, k = 90, depth = 6)
+reprtree:::plot.getTree(rf_model, k = 25, depth = 6)
+reprtree:::plot.getTree(rf_model, k = 75, depth = 6)
+
+
+
+```
+
+
+Random Forest Summary: 
+We can see that the technique produces us the best model accuracy having a correct classification in 62% of the test set. We also notice that the model is likely not overfit by seeing that the variable important is reasonably spread. We notice that studyTime, Age, classTime, socialMediaTime, and classRating are the most important variables within the combined trees. This tells us that those variables have the most impact on whether time was poorly or well utilized.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+*extra CLUSTERING*
+
+The portion of this modeling specifically is created to group copingMech variable. This portion involves text mining techniques and unsupervised machine learning algorithm K-means Clustering.
+
+The provided code snippet demonstrates a text mining workflow on a collection of text documents. It starts by creating a corpus from the text documents, where various preprocessing steps are applied to clean the text data. These steps include converting the text to lowercase, removing punctuation, numbers, and common English stopwords, and performing stemming to reduce words to their base form. 
+
+Next, a document-term matrix (DTM) is constructed from the preprocessed corpus, representing the frequency of terms in each document. The TF-IDF (Term Frequency-Inverse Document Frequency) weights are then computed based on the DTM, which captures the importance of each term in a document relative to the entire corpus. The resulting TF-IDF matrix is displayed, providing insights into the relevance of different terms across the documents.
+
+Additionally, the code performs K-Means clustering on the TF-IDF matrix to group the documents into distinct clusters. The number of clusters (k) is predetermined and set to 5 in this example. The cluster assignments for each document are obtained, indicating which cluster each document belongs to. This enables the identification of similar documents based on their textual content.
+
+This is comprehensive text mining pipeline, starting from data preprocessing to TF-IDF calculation and K-Means clustering. This approach allows for the exploration and analysis of document clustering, topic modeling, and identifying important terms in the corpus.
+
+
+``` {r echo=TRUE}
+# Example with text documents in a vector
+mycorpus <- Corpus(VectorSource(covidSurvey$copingMech))
+
+mycorpus <- tm_map(mycorpus, content_transformer(tolower))
+mycorpus <- tm_map(mycorpus, removePunctuation)
+mycorpus <- tm_map(mycorpus, removeNumbers)
+mycorpus <- tm_map(mycorpus, removeWords, stopwords("english"))
+mycorpus <- tm_map(mycorpus, stemDocument)
+
+dtm <- DocumentTermMatrix(mycorpus)
+
+tfidf <- weightTfIdf(dtm)
+
+tfidf
+```
+
+```{r echo=TRUE}
+
+# Get the maximum TF-IDF weight for each document
+max_weights <- apply(tfidf, 1, max)
+
+# Get the corresponding term indices for the maximum weights
+term_indices <- apply(tfidf, 1, which.max)
+
+# Get the terms with the highest weights for each document
+terms_with_max_weights <- colnames(tfidf)[term_indices]
+
+# Combine the terms and weights into a data frame
+max_weights_df <- data.frame(Term = terms_with_max_weights, Weight = max_weights)
+
+# View the data frame with terms and weights
+print(max_weights_df)
+```
+
+```{r echo=TRUE}
+
+# Determine the number of clusters (k) you want to identify
+k <- 5
+
+# Perform K-Means clustering
+kmeans_result <- kmeans(tfidf, centers = k)
+
+# Get the cluster assignments for each document
+cluster_assignments <- kmeans_result$cluster
+
+# View the cluster assignments
+print(cluster_assignments)
+```
+
+```{r echo=TRUE}
+# 
+# #still working
+# # Install and load the required packages
+# #install.packages("wordcloud")
+# library(wordcloud)
+# 
+# # Get the terms (words) from the TF-IDF matrix
+# terms <- colnames(tfidf)
+# 
+# # Create a data frame with the terms and their corresponding cluster assignments
+# terms_clusters <- data.frame(Term = terms, Cluster = cluster_assignments)
+# 
+# # Iterate through each cluster and generate a word cloud
+# for (i in 1:k) {
+#   cluster_terms <- terms_clusters$Term[terms_clusters$Cluster == i]
+#   cluster_tfidf <- tfidf[, cluster_terms]
+#   cluster_scores <- rowSums(cluster_tfidf)
+#   
+#   # Generate a word cloud for the current cluster
+#   wordcloud(words = cluster_terms, freq = cluster_scores, scale = c(5, 1), random.order = FALSE,
+#             colors = brewer.pal(8, "Dark2"))
+#   
+#   # Add a title for the word cloud
+#   title(paste("Cluster", i))
+# }
+
+```
+
+
+
+
+```{r echo=TRUE}
+# 
+# #cleaning the coping mech variable
+# 
+# #library(tm)
+# library(tau)
+# 
+# #table(covidNum$copingMech)
+# # Set the variable_entries
+# variable_entries <- c("All reading books watching web series listening to music and talking to friends",
+#                       "Anime Manga",
+#                       "Both listining music and scrolling down social media",
+#                       "Business",
+#                       "By engaging in my work.",
+#                       "Calling friends",
+#                       "Cardio",
+#                       "Coding and studying for exams",
+#                       "Cooking",
+#                       "Cricket",
+#                       "Crying",
+#                       "Dancing",
+#                       "Do some home related stuff",
+#                       "Dont get distreessed",
+#                       "Drawing",
+#                       "Drawing",
+#                       "Drawing and painting and sketching",
+#                       "Drawing, painting",
+#                       "Driving",
+#                       "Exercise",
+#                       "Exercising",
+#                       "Football",
+#                       "Forming",
+#                       "gardening cartoon",
+#                       "Gym",
+#                       "I cant de-stress myslef",
+#                       "I have no problem of stress",
+#                       "I play Rubiks cube")
+# 
+# 
+# # Create a data frame from the variable_entries
+# data <- data.frame(text = variable_entries, stringsAsFactors = FALSE)
+# 
+# # Tokenize the text into bigrams
+# bigrams <- data %>%
+#   unnest_tokens(bigram, text, token = "ngrams", n = 2) %>%
+#   count(bigram, sort = TRUE)
+# 
+# # Print the top 5 most common word pairs
+# top_bigrams <- head(bigrams, 29)
+# print(top_bigrams)
+# 
+```
+ 
+ 
+``` {r}
+# library(text2vec)
+# library(cluster)
+# 
+# # Set the variable_entries
+# variable_entries <- c("All reading books watching web series listening to music and talking to friends",
+#                       "Anime Manga",
+#                       "Both listining music and scrolling down social media",
+#                       "Business",
+#                       "By engaging in my work.",
+#                       "Calling friends",
+#                       "Cardio",
+#                       "Coding and studying for exams",
+#                       "Cooking",
+#                       "Cricket",
+#                       "Crying",
+#                       "Dancing",
+#                       "Do some home related stuff",
+#                       "Dont get distreessed",
+#                       "Drawing",
+#                       "Drawing",
+#                       "Drawing and painting and sketching",
+#                       "Drawing, painting",
+#                       "Driving",
+#                       "Exercise",
+#                       "Exercising",
+#                       "Football",
+#                       "Forming",
+#                       "gardening cartoon",
+#                       "Gym",
+#                       "I cant de-stress myslef",
+#                       "I have no problem of stress",
+#                       "I play Rubiks cube")
+# 
+# # Tokenize and create a document-term matrix
+# tokens <- word_tokenizer(variable_entries)
+# dtm <- create_dtm(itoken(tokens), vectorizer = vocab_vectorizer())
+# 
+# # Perform text clustering using K-means algorithm
+# k <- 3  # Number of clusters
+# kmeans_result <- kmeans(dtm, centers = k)
+# 
+# # Get the cluster labels for each text entry
+# cluster_labels <- kmeans_result$cluster
+# 
+# # Assign labels to each cluster
+# labels <- c("Group A", "Group B", "Group C")
+# cluster_group <- labels[cluster_labels]
+# 
+# # Print the groupings
+# groupings <- data.frame(Text = variable_entries, Group = cluster_group)
+# print(groupings)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r echo=FALSE}
+# saveRDS(covidNum, file = "covidNum.rds")
+# saveRDS(covidNum, file = "covidNum.rds")
+# saveRDS(covidSurvey, file = 'covidSurvey.rds')
+```
